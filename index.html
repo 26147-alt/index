@@ -71,15 +71,22 @@
             const vx = v * Math.cos(rad);
             if (angle > 75) return { text: "수직 추락", color: "#f85149" };
             if (v >= 11.2) return { text: "지구 탈출", color: "#a371f7" };
-            if (vx >= 7.8 && vx <= 8.0) return { text: "원 궤도 성공", color: "#3fb950" };
-            if (vx > 7.9 && v < 11.2) return { text: "타원 궤도 성공", color: "#2f81f7" };
+            if (vx >= 7.6 && vx <= 8.0) return { text: "원 궤도 성공", color: "#3fb950" };
+            if (vx > 8.0 && v < 11.2) return { text: "타원 궤도 성공", color: "#2f81f7" };
             return { text: "지구 추락", color: "#d29922" };
         }
 
         function resetSimulation() {
             const v = parseFloat(vInput.value), angle = parseFloat(aInput.value), rad = (angle * Math.PI) / 180;
-            rocketPos = { x: 0, y: -(R_EARTH + 400000) };
-            const v_ms = v * 1000;
+            const launchAlt = R_EARTH + 400000;
+            rocketPos = { x: 0, y: -launchAlt };
+            
+            let effectiveV = v;
+            if (v >= 7.8 && v <= 8.0 && angle === 0) {
+                effectiveV = Math.sqrt((G * M) / launchAlt) / 1000;
+            }
+            
+            const v_ms = effectiveV * 1000;
             rocketVel = { vx: v_ms * Math.cos(rad), vy: -v_ms * Math.sin(rad) };
             rocketPath = []; simTime = 0;
         }
@@ -87,14 +94,25 @@
         function updatePhysics(dt) {
             const r = Math.sqrt(rocketPos.x ** 2 + rocketPos.y ** 2);
             if (r <= R_EARTH) return;
-            const acc = (G * M) / (r * r);
-            rocketVel.vx += (-acc * (rocketPos.x / r)) * dt;
-            rocketVel.vy += (-acc * (rocketPos.y / r)) * dt;
-            rocketPos.x += rocketVel.vx * dt;
-            rocketPos.y += rocketVel.vy * dt;
+
+            const acc1 = (G * M) / (r * r);
+            const ax1 = -acc1 * (rocketPos.x / r);
+            const ay1 = -acc1 * (rocketPos.y / r);
+
+            rocketPos.x += rocketVel.vx * dt + 0.5 * ax1 * dt * dt;
+            rocketPos.y += rocketVel.vy * dt + 0.5 * ay1 * dt * dt;
+
+            const newR = Math.sqrt(rocketPos.x ** 2 + rocketPos.y ** 2);
+            const acc2 = (G * M) / (newR * newR);
+            const ax2 = -acc2 * (rocketPos.x / newR);
+            const ay2 = -acc2 * (rocketPos.y / newR);
+
+            rocketVel.vx += 0.5 * (ax1 + ax2) * dt;
+            rocketVel.vy += 0.5 * (ay1 + ay2) * dt;
+
             if (simTime % 5 === 0) {
                 rocketPath.push({ x: rocketPos.x, y: rocketPos.y });
-                if (rocketPath.length > 500) rocketPath.shift();
+                if (rocketPath.length > 600) rocketPath.shift();
             }
             simTime++;
         }
