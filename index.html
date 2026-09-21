@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>지구 궤도 진입 시뮬레이션</title>
+    <style>
+        :root { --bg-color: #0b0e14; --panel-bg: #161b22; --text-color: #e6edf3; --accent-color: #2f81f7; --border-color: #30363d; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: sans-serif; background-color: var(--bg-color); color: var(--text-color); display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        header { text-align: center; margin-bottom: 20px; }
+        header h1 { font-size: 1.5rem; color: #58a6ff; }
+        .main-container { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 900px; }
+        .control-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label span { color: var(--accent-color); font-weight: bold; }
+        input[type="range"] { width: 100%; accent-color: var(--accent-color); cursor: pointer; }
+        .result-box { background-color: #0d1117; border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; text-align: center; }
+        .status-text { font-size: 1.2rem; font-weight: bold; }
+        .canvas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .canvas-card { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; text-align: center; }
+        canvas { background-color: #000; border-radius: 4px; width: 100%; height: auto; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🚀 지구 궤도 진입 시뮬레이션</h1>
+    </header>
+    <div class="main-container">
+        <div class="control-panel">
+            <div class="input-group">
+                <label>발사 속도: <span id="v-val">7.9 km/s</span></label>
+                <input type="range" id="velocity" min="0" max="12" step="0.1" value="7.9">
+            </div>
+            <div class="input-group">
+                <label>발사각: <span id="a-val">0°</span></label>
+                <input type="range" id="angle" min="0" max="90" step="1" value="0">
+            </div>
+            <div class="result-box">
+                <div style="font-size: 0.8rem; color: #8b949e;">판정 결과</div>
+                <div id="status-text" class="status-text" style="color: #3fb950;">원 궤도 성공</div>
+            </div>
+        </div>
+        <div class="canvas-grid">
+            <div class="canvas-card">
+                <h3 style="margin-bottom:10px; font-size:0.9rem;">궤도 시뮬레이션</h3>
+                <canvas id="simCanvas" width="400" height="400"></canvas>
+            </div>
+            <div class="canvas-card">
+                <h3 style="margin-bottom:10px; font-size:0.9rem;">상태 공간 그래프</h3>
+                <canvas id="graphCanvas" width="400" height="400"></canvas>
+            </div>
+        </div>
+    </div>
+    <script>
+        const vInput = document.getElementById('velocity');
+        const aInput = document.getElementById('angle');
+        const vVal = document.getElementById('v-val');
+        const aVal = document.getElementById('a-val');
+        const statusText = document.getElementById('status-text');
+        const simCanvas = document.getElementById('simCanvas');
+        const simCtx = simCanvas.getContext('2d');
+        const graphCanvas = document.getElementById('graphCanvas');
+        const graphCtx = graphCanvas.getContext('2d');
+
+        const G = 6.67430e-11, M = 5.972e24, R_EARTH = 6371000, SCALE = 120 / R_EARTH;
+        let rocketPos = { x: 0, y: 0 }, rocketVel = { vx: 0, vy: 0 }, rocketPath = [], simTime = 0;
+
+        function evaluateState(v, angle) {
+            const rad = (angle * Math.PI) / 180;
+            const vx = v * Math.cos(rad);
+            if (angle > 75) return { text: "수직 추락", color: "#f85149" };
+            if (v >= 11.2) return { text: "지구 탈출", color: "#a371f7" };
+            if (vx >= 7.8 && vx <= 8.0) return { text: "원 궤도 성공", color: "#3fb950" };
+            if (vx > 7.9 && v < 11.2) return { text: "타원 궤도 성공", color: "#2f81f7" };
+            return { text: "지구 추락", color: "#d29922" };
+        }
+
+        function resetSimulation() {
+            const v = parseFloat(vInput.value), angle = parseFloat(aInput.value), rad = (angle * Math.PI) / 180;
+            rocketPos = { x: 0, y: -(R_EARTH + 400000) };
+            const v_ms = v * 1000;
+            rocketVel = { vx: v_ms * Math.cos(rad), vy: -v_ms * Math.sin(rad) };
+            rocketPath = []; simTime = 0;
+        }
+
+        function updatePhysics(dt) {
+            const r = Math.sqrt(rocketPos.x ** 2 + rocketPos.y ** 2);
+            if (r <= R_EARTH) return;
+            const acc = (G * M) / (r * r);
+            rocketVel.vx += (-acc * (rocketPos.x / r)) * dt;
+            rocketVel.vy += (-acc * (rocketPos.y / r)) * dt;
+            rocketPos.x += rocketVel.vx * dt;
+            rocketPos.y += rocketVel.vy * dt;
+            if (simTime % 5 === 0) {
+                rocketPath.push({ x: rocketPos.x, y: rocketPos.y });
+                if (rocketPath.length > 500) rocketPath.shift();
+            }
+            simTime++;
+        }
+
+        function drawSimulation() {
+            const cx = simCanvas.width / 2, cy = simCanvas.height / 2;
+            simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+            simCtx.beginPath(); simCtx.arc(cx, cy, R_EARTH * SCALE, 0, Math.PI * 2);
+            simCtx.fillStyle = '#1f6beb'; simCtx.fill();
+            if (rocketPath.length > 1) {
+                simCtx.beginPath();
+                simCtx.moveTo(cx + rocketPath[0].x * SCALE, cy + rocketPath[0].y * SCALE);
+                for (let i = 1; i < rocketPath.length; i++) simCtx.lineTo(cx + rocketPath[i].x * SCALE, cy + rocketPath[i].y * SCALE);
+                simCtx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; simCtx.stroke();
+            }
+            simCtx.beginPath();
+            simCtx.arc(cx + rocketPos.x * SCALE, cy + rocketPos.y * SCALE, 4, 0, Math.PI * 2);
+            simCtx.fillStyle = '#f0883e'; simCtx.fill();
+        }
+
+        function drawGraph() {
+            const w = graphCanvas.width, h = graphCanvas.height, p = 35;
+            graphCtx.clearRect(0, 0, w, h);
+            graphCtx.strokeStyle = '#8b949e'; graphCtx.beginPath();
+            graphCtx.moveTo(p, h - p); graphCtx.lineTo(w - 10, h - p);
+            graphCtx.moveTo(p, h - p); graphCtx.lineTo(p, 10); graphCtx.stroke();
+            const px = p + (parseFloat(vInput.value) / 12) * (w - p - 20);
+            const py = (h - p) - (parseFloat(aInput.value) / 90) * (h - p - 20);
+            const res = evaluateState(parseFloat(vInput.value), parseFloat(aInput.value));
+            graphCtx.beginPath(); graphCtx.arc(px, py, 6, 0, Math.PI * 2);
+            graphCtx.fillStyle = res.color; graphCtx.fill();
+        }
+
+        function loop() {
+            for (let i = 0; i < 10; i++) updatePhysics(10);
+            drawSimulation();
+            requestAnimationFrame(loop);
+        }
+
+        function updateAll() {
+            vVal.textContent = parseFloat(vInput.value).toFixed(1) + " km/s";
+            aVal.textContent = aInput.value + "°";
+            const res = evaluateState(parseFloat(vInput.value), parseFloat(aInput.value));
+            statusText.textContent = res.text; statusText.style.color = res.color;
+            resetSimulation(); drawGraph();
+        }
+
+        vInput.addEventListener('input', updateAll);
+        aInput.addEventListener('input', updateAll);
+        updateAll(); loop();
+    </script>
+</body>
+</html>
